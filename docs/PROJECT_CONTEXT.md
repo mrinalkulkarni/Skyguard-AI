@@ -106,6 +106,8 @@ generating the dashboard's visual design/HTML-Tailwind, then hand-translated int
 - [2026-09-07] Spatial/neighbor-station comparison = optional demo enrichment only, core detector never depends
   on it (see Section 5).
   
+  [2026-09-08] NCEI direct download retired 2026-07-31; using NODD S3 (noaa-isd-pds bucket) instead.
+  
   [2026-09-07] Chose Python 3.13.5 instead of Python 3.11.
   REASON: Python 3.13.5 is already installed locally; avoid unnecessary
   environment changes. Package compatibility will be verified during setup.

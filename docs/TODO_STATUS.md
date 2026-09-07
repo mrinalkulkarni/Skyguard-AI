@@ -25,3 +25,4 @@ or Section "Coding Order" in IMPLEMENTATION_SCHEDULE.md.
 ## CHANGELOG
 - 2026-09-07 — Research complete, architecture frozen, PROJECT_CONTEXT.md created.
 - 2026-09-08 — Scaffold created, all core packages installed under Python 3.13.15, requirements.txt frozen.
+- 2026-09-08 — Real NOAA data cleaned via NODD S3 (station: 010010-99999-2023.gz), clean.csv has 8545 rows.
