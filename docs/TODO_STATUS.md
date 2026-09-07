@@ -5,7 +5,7 @@ Phase: Day 0 (research complete). Nothing coded yet. Next action: environment se
 or Section "Coding Order" in IMPLEMENTATION_SCHEDULE.md.
 
 ## TODO (P0 first)
-- [ ] P0: Repo scaffold + venv + requirements.txt
+- [x] P0: Repo scaffold + venv + requirements.txt
 - [ ] P0: `simulator.py` — CSV replay / anomaly injector
 - [ ] P0: `preprocessing.py` — cleaning, resampling, feature engineering
 - [ ] P0: `detector.py` — rules + IsolationForest + fusion
@@ -24,3 +24,4 @@ or Section "Coding Order" in IMPLEMENTATION_SCHEDULE.md.
 
 ## CHANGELOG
 - 2026-09-07 — Research complete, architecture frozen, PROJECT_CONTEXT.md created.
+- 2026-09-08 — Scaffold created, all core packages installed under Python 3.13.15, requirements.txt frozen.
