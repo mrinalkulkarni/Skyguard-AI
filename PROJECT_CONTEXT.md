@@ -88,7 +88,7 @@ HUMIDITY_FROZEN (generalized to SENSOR_FROZEN/STUCK_AT for any variable), SENSOR
 COMMUNICATION_FAILURE, MULTIVARIATE_INCONSISTENCY, POSSIBLE_REAL_WEATHER_EVENT.
 
 ## 7. TECH STACK (FREE, VERIFIED SEPT 2026)
-Python 3.11, pandas, numpy, scikit-learn (IsolationForest), shap, plotly/matplotlib, Streamlit (UI + local
+Python 3.13.5, pandas, numpy, scikit-learn (IsolationForest), shap, plotly/matplotlib, Streamlit (UI + local
 real-time loop via `st.rerun`/session_state), SQLite (local storage), GitHub (source of truth), VS Code,
 Streamlit Community Cloud (deployment, free), Claude (free tier, ~15-40 msgs/5hr window, use sparingly, batch
 prompts), Google Antigravity (free tier now only ~20 req/day — use for narrow, well-scoped tasks only, not
@@ -105,6 +105,10 @@ generating the dashboard's visual design/HTML-Tailwind, then hand-translated int
   achieves the same demo effect at zero infra risk.
 - [2026-09-07] Spatial/neighbor-station comparison = optional demo enrichment only, core detector never depends
   on it (see Section 5).
+  
+  [2026-09-07] Chose Python 3.13.5 instead of Python 3.11.
+  REASON: Python 3.13.5 is already installed locally; avoid unnecessary
+  environment changes. Package compatibility will be verified during setup.
 
 ## 9. HOW EACH AI SHOULD USE THIS FILE
 - **Claude**: Read fully before generating any code. Never propose a different pipeline than Section 4 unless
