@@ -14,6 +14,7 @@ CLEAN_FILE = "data/processed/clean.csv"
 
 ANOMALY_INTERVAL = 1000
 TEMPERATURE_SPIKE = 15
+PRESSURE_SPIKE = 50
 
 df = pd.read_csv(CLEAN_FILE)
 
@@ -29,7 +30,8 @@ def simulate(dataframe, delay=1):
         # Inject a temperature spike every 1000 rows
         if index > 0 and index % ANOMALY_INTERVAL == 0:
             simulated_row["temperature_c"] += TEMPERATURE_SPIKE
-            print("⚠️ SYNTHETIC ANOMALY: Temperature spike")
+            simulated_row["pressure_hpa"] += PRESSURE_SPIKE
+            print("⚠️ SYNTHETIC ANOMALY: Temperature + Pressure spike")
 
         print(simulated_row.to_dict())
         time.sleep(delay)
