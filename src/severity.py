@@ -1,10 +1,17 @@
 """
 severity.py — SkyGuard AI
 
-Converts anomaly confidence into a severity level.
+Classifies anomaly severity using confidence score and
+root-cause type.
+
+Severity levels:
+    NONE
+    LOW
+    MEDIUM
+    HIGH
+    CRITICAL
 
 Owner: Member 1
-Status: IN PROGRESS
 """
 
 import pandas as pd
@@ -14,38 +21,79 @@ import pandas as pd
 # Severity thresholds
 # ---------------------------------------------------------
 
-LOW_THRESHOLD = 1
-MEDIUM_THRESHOLD = 25
-HIGH_THRESHOLD = 50
-CRITICAL_THRESHOLD = 75
+LOW_THRESHOLD = 25
+MEDIUM_THRESHOLD = 50
+HIGH_THRESHOLD = 75
+CRITICAL_THRESHOLD = 90
 
 
 # ---------------------------------------------------------
-# Severity classification
+# Critical root causes
+# ---------------------------------------------------------
+
+CRITICAL_ROOT_CAUSES = {
+    "SENSOR_BIAS",
+    "MISSING_DATA",
+}
+
+
+# ---------------------------------------------------------
+# Calculate severity for one row
 # ---------------------------------------------------------
 
 def calculate_severity(row):
     """
-    Convert anomaly confidence into a severity level.
+    Determine the severity of one observation.
     """
 
-    confidence = row.get("confidence", 0)
-
-    # Normal reading
-    if not row.get("ml_anomaly", False):
+    # Normal observation
+    if not bool(row.get("is_anomaly", False)):
         return "NONE"
+
+    confidence = float(
+        row.get("confidence", 0) or 0
+    )
+
+    anomaly_type = str(
+        row.get("anomaly_type", "NONE")
+    )
+
+    # -----------------------------------------------------
+    # Critical conditions
+    # -----------------------------------------------------
 
     if confidence >= CRITICAL_THRESHOLD:
         return "CRITICAL"
 
-    elif confidence >= HIGH_THRESHOLD:
+    if anomaly_type in CRITICAL_ROOT_CAUSES and confidence >= HIGH_THRESHOLD:
+        return "CRITICAL"
+
+    # -----------------------------------------------------
+    # High severity
+    # -----------------------------------------------------
+
+    if confidence >= HIGH_THRESHOLD:
         return "HIGH"
 
-    elif confidence >= MEDIUM_THRESHOLD:
+    # -----------------------------------------------------
+    # Medium severity
+    # -----------------------------------------------------
+
+    if confidence >= MEDIUM_THRESHOLD:
         return "MEDIUM"
 
-    else:
+    # -----------------------------------------------------
+    # Low severity
+    # -----------------------------------------------------
+
+    if confidence >= LOW_THRESHOLD:
         return "LOW"
+
+    # -----------------------------------------------------
+    # Detected anomaly with low confidence
+    # -----------------------------------------------------
+
+    return "LOW"
 
 
 # ---------------------------------------------------------
@@ -54,7 +102,7 @@ def calculate_severity(row):
 
 def add_severity(df):
     """
-    Add severity classification to the dataframe.
+    Add severity column to the dataframe.
     """
 
     df = df.copy()
@@ -68,48 +116,142 @@ def add_severity(df):
 
 
 # ---------------------------------------------------------
-# Test the severity classifier
+# Standalone test
 # ---------------------------------------------------------
 
 if __name__ == "__main__":
 
-    print("Starting severity classification...")
+    from src.simulator import (
+        load_clean_data,
+        inject_anomalies,
+    )
 
-    from detector import detect_anomalies
-    from preprocessing import preprocess_data
-    from rootcause import classify_dataframe
-    from scoring import add_confidence_scores
+    from src.preprocessing import preprocess
 
-    # Step 1: Preprocess
-    df = preprocess_data()
+    from src.detector import detect_anomalies
 
-    # Step 2: ML anomaly detection
-    df, model = detect_anomalies(df)
+    from src.rootcause import classify_dataframe
 
-    # Step 3: Root-cause classification
-    df = classify_dataframe(df)
+    from src.scoring import add_confidence_scores
 
-    # Step 4: Confidence scoring
-    df = add_confidence_scores(df)
+    print("Loading clean data...")
 
-    # Step 5: Severity classification
-    df = add_severity(df)
+    clean = load_clean_data()
 
-    print("\nSeverity classification complete!")
+    print(f"Clean rows: {len(clean)}")
+
+    print("\nInjecting anomalies...")
+
+    stream = inject_anomalies(clean)
+
+    print(f"Stream rows: {len(stream)}")
+
+    print("\nRunning preprocessing...")
+
+    features = preprocess(stream)
+
+    print(f"Feature rows: {len(features)}")
+
+    print("\nRunning anomaly detection...")
+
+    detected, model = detect_anomalies(features)
+
+    print("Detection complete.")
+
+    print("\nRunning root-cause classification...")
+
+    classified = classify_dataframe(detected)
+
+    print("Root-cause classification complete.")
+
+    print("\nCalculating confidence scores...")
+
+    scored = add_confidence_scores(classified)
+
+    print("Confidence calculation complete.")
+
+    print("\nCalculating severity...")
+
+    result = add_severity(scored)
+
+    print("Severity classification complete!")
+
+    # -----------------------------------------------------
+    # Severity distribution
+    # -----------------------------------------------------
 
     print("\nSeverity counts:")
-    print(df["severity"].value_counts())
-
-    print("\nSample results:")
 
     print(
-        df[
-            [
-                "timestamp",
-                "ml_anomaly",
-                "anomaly_type",
-                "confidence",
-                "severity"
-            ]
-        ].head(20)
+        result["severity"].value_counts()
+    )
+
+    # -----------------------------------------------------
+    # Validation
+    # -----------------------------------------------------
+
+    valid_levels = {
+        "NONE",
+        "LOW",
+        "MEDIUM",
+        "HIGH",
+        "CRITICAL",
+    }
+
+    invalid_levels = set(
+        result["severity"].unique()
+    ) - valid_levels
+
+    if len(invalid_levels) == 0:
+        print("\nSeverity level check: OK")
+    else:
+        print(
+            "\nSeverity level check: FAILED"
+        )
+        print(
+            f"Invalid levels: {invalid_levels}"
+        )
+
+    # -----------------------------------------------------
+    # Check normal observations
+    # -----------------------------------------------------
+
+    normal_rows = result[
+        ~result["is_anomaly"]
+    ]
+
+    normal_with_non_none = normal_rows[
+        normal_rows["severity"] != "NONE"
+    ]
+
+    if len(normal_with_non_none) == 0:
+        print(
+            "Normal observation check: OK"
+        )
+    else:
+        print(
+            "Normal observation check: FAILED"
+        )
+
+    # -----------------------------------------------------
+    # Show anomalies
+    # -----------------------------------------------------
+
+    columns_to_show = [
+        "timestamp",
+        "is_anomaly",
+        "anomaly_type",
+        "confidence",
+        "severity",
+    ]
+
+    print("\nFirst detected anomalies:")
+
+    print(
+        result.loc[
+            result["is_anomaly"],
+            columns_to_show
+        ]
+        .head(20)
+        .to_string(index=False)
     )

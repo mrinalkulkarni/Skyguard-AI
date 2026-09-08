@@ -1,55 +1,161 @@
 """
 scoring.py — SkyGuard AI
 
-Calculates anomaly confidence scores using:
-- ML anomaly detection
-- Anomaly strength
-- Sensor change magnitude
+Calculates confidence scores for detected anomalies.
+
+The confidence score combines:
+- Rule-based detection
+- Rolling/statistical detection
+- Machine-learning detection
+- Final fusion score
+- Root-cause classification
+
+Output:
+    confidence: integer from 0 to 100
 
 Owner: Member 1
-Status: IN PROGRESS
 """
 
 import pandas as pd
 
 
+# ---------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------
+
+CONFIDENCE_MIN = 0
+CONFIDENCE_MAX = 100
+
+
+# ---------------------------------------------------------
+# Helper
+# ---------------------------------------------------------
+
+def clamp(value, minimum=CONFIDENCE_MIN, maximum=CONFIDENCE_MAX):
+    """
+    Keep a numeric value inside a fixed range.
+    """
+
+    return max(minimum, min(maximum, value))
+
+
+# ---------------------------------------------------------
+# Confidence calculation
+# ---------------------------------------------------------
+
 def calculate_confidence(row):
     """
-    Calculate a confidence score from 0 to 100.
+    Calculate confidence for one sensor observation.
+
+    The detector already combines multiple signals into
+    fusion_score. We use that as the main signal and then
+    increase confidence when multiple detection methods agree.
     """
 
-    # Normal reading
-    if not row.get("ml_anomaly", False):
+    # Normal observations have zero anomaly confidence.
+    if not bool(row.get("is_anomaly", False)):
         return 0
 
-    # Start with ML detection confidence
-    ml_score = row.get("anomaly_score", 0)
+    # Get detector scores.
+    rule_score = float(row.get("rule_score", 0.0) or 0.0)
+    rolling_score = float(row.get("rolling_score", 0.0) or 0.0)
+    ml_score = float(row.get("ml_score", 0.0) or 0.0)
+    fusion_score = float(row.get("fusion_score", 0.0) or 0.0)
 
-    # Isolation Forest gives lower scores to stronger anomalies.
-    # Convert the score into a simple 0-100 confidence value.
-    ml_confidence = max(0, min(100, (0.5 - ml_score) * 100))
+    # Make sure all scores stay between 0 and 1.
+    rule_score = clamp(rule_score, 0.0, 1.0)
+    rolling_score = clamp(rolling_score, 0.0, 1.0)
+    ml_score = clamp(ml_score, 0.0, 1.0)
+    fusion_score = clamp(fusion_score, 0.0, 1.0)
 
-    # Calculate sensor-change strength
-    temperature_change = abs(row.get("temperature_change", 0))
-    pressure_change = abs(row.get("pressure_change", 0))
-    humidity_change = abs(row.get("humidity_change", 0))
+    # -----------------------------------------------------
+    # Main confidence component
+    # -----------------------------------------------------
 
-    change_strength = max(
-        temperature_change / 20,
-        pressure_change / 50,
-        humidity_change / 40
+    fusion_confidence = fusion_score * 100
+
+    # -----------------------------------------------------
+    # Agreement component
+    #
+    # Count how many detection methods provide a meaningful
+    # anomaly signal.
+    # -----------------------------------------------------
+
+    supporting_methods = 0
+
+    if rule_score >= 0.50:
+        supporting_methods += 1
+
+    if rolling_score >= 0.50:
+        supporting_methods += 1
+
+    # ml_score is naturally around a different scale, so
+    # 0.45 is used as a meaningful ML anomaly signal.
+    if ml_score >= 0.45:
+        supporting_methods += 1
+
+    if supporting_methods == 3:
+        agreement_bonus = 15
+
+    elif supporting_methods == 2:
+        agreement_bonus = 10
+
+    elif supporting_methods == 1:
+        agreement_bonus = 5
+
+    else:
+        agreement_bonus = 0
+
+    # -----------------------------------------------------
+    # Root-cause confirmation
+    # -----------------------------------------------------
+
+    anomaly_type = str(
+        row.get("anomaly_type", "NONE")
     )
 
-    change_confidence = min(100, change_strength * 100)
+    specific_root_causes = {
+        "TEMPERATURE_SPIKE",
+        "TEMPERATURE_DROP",
+        "TEMPERATURE_DRIFT",
+        "PRESSURE_SPIKE",
+        "PRESSURE_DRIFT",
+        "HUMIDITY_SPIKE",
+        "HUMIDITY_FROZEN",
+        "TEMPERATURE_FROZEN",
+        "PRESSURE_FROZEN",
+        "SENSOR_FROZEN",
+        "SENSOR_BIAS",
+        "MISSING_DATA",
+    }
 
-    # Combine ML confidence and sensor-change confidence
+    if anomaly_type in specific_root_causes:
+        root_cause_bonus = 5
+    else:
+        root_cause_bonus = 0
+
+    # -----------------------------------------------------
+    # Final confidence
+    # -----------------------------------------------------
+
     confidence = (
-        0.7 * ml_confidence +
-        0.3 * change_confidence
+        fusion_confidence
+        + agreement_bonus
+        + root_cause_bonus
     )
 
-    return int(max(0, min(100, confidence)))
+    confidence = clamp(
+        confidence,
+        CONFIDENCE_MIN,
+        CONFIDENCE_MAX
+    )
 
+    return int(round(confidence))
+
+
+# ---------------------------------------------------------
+# Add confidence column
+# ---------------------------------------------------------
 
 def add_confidence_scores(df):
     """
@@ -66,41 +172,115 @@ def add_confidence_scores(df):
     return df
 
 
+# ---------------------------------------------------------
+# Standalone test
+# ---------------------------------------------------------
+
 if __name__ == "__main__":
 
-    print("Starting anomaly scoring...")
+    from src.simulator import (
+        load_clean_data,
+        inject_anomalies,
+    )
 
-    from detector import detect_anomalies
-    from preprocessing import preprocess_data
-    from rootcause import classify_dataframe
+    from src.preprocessing import preprocess
 
-    # Step 1: Preprocess data
-    df = preprocess_data()
+    from src.detector import detect_anomalies
 
-    # Step 2: Detect anomalies
-    df, model = detect_anomalies(df)
+    from src.rootcause import classify_dataframe
 
-    # Step 3: Classify root cause
-    df = classify_dataframe(df)
+    print("Loading clean data...")
 
-    # Step 4: Calculate confidence
-    df = add_confidence_scores(df)
+    clean = load_clean_data()
 
-    print("\nAnomaly scoring complete!")
+    print(f"Clean rows: {len(clean)}")
+
+    print("\nInjecting anomalies...")
+
+    stream = inject_anomalies(clean)
+
+    print(f"Stream rows: {len(stream)}")
+
+    print("\nRunning preprocessing...")
+
+    features = preprocess(stream)
+
+    print(f"Feature rows: {len(features)}")
+
+    print("\nRunning anomaly detection...")
+
+    detected, model = detect_anomalies(features)
+
+    print("Detection complete.")
+
+    print("\nRunning root-cause classification...")
+
+    classified = classify_dataframe(detected)
+
+    print("Root-cause classification complete.")
+
+    print("\nCalculating confidence scores...")
+
+    result = add_confidence_scores(classified)
+
+    print("Confidence calculation complete!")
+
+    # -----------------------------------------------------
+    # Validation
+    # -----------------------------------------------------
 
     print("\nConfidence statistics:")
-    print(df["confidence"].describe())
-
-    print("\nSample results:")
 
     print(
-        df[
-            [
-                "timestamp",
-                "ml_anomaly",
-                "anomaly_type",
-                "anomaly_score",
-                "confidence"
-            ]
-        ].head(20)
+        result["confidence"].describe()
+    )
+
+    print("\nConfidence range:")
+
+    print(
+        f"Minimum: {result['confidence'].min()}"
+    )
+
+    print(
+        f"Maximum: {result['confidence'].max()}"
+    )
+
+    # -----------------------------------------------------
+    # Check that confidence is valid
+    # -----------------------------------------------------
+
+    invalid_confidence = result[
+        (result["confidence"] < 0)
+        | (result["confidence"] > 100)
+    ]
+
+    if len(invalid_confidence) == 0:
+        print("\nConfidence range check: OK")
+    else:
+        print("\nConfidence range check: FAILED")
+
+    # -----------------------------------------------------
+    # Show detected anomalies
+    # -----------------------------------------------------
+
+    columns_to_show = [
+        "timestamp",
+        "is_anomaly",
+        "anomaly_type",
+        "rule_score",
+        "rolling_score",
+        "ml_score",
+        "fusion_score",
+        "confidence",
+    ]
+
+    print("\nFirst detected anomalies:")
+
+    print(
+        result.loc[
+            result["is_anomaly"],
+            columns_to_show
+        ]
+        .head(20)
+        .to_string(index=False)
     )

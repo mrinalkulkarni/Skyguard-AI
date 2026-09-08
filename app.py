@@ -1,10 +1,10 @@
 """
 app.py — SkyGuard AI
 
-Streamlit dashboard for real-time weather anomaly monitoring.
+Streamlit dashboard for intelligent weather sensor
+anomaly monitoring.
 
 Owner: Member 2
-Status: IN PROGRESS
 """
 
 import sys
@@ -15,7 +15,7 @@ import streamlit as st
 
 
 # ---------------------------------------------------------
-# Allow Python to find modules inside src/
+# Allow Python to find src/
 # ---------------------------------------------------------
 
 SRC_PATH = os.path.join(
@@ -42,20 +42,21 @@ st.set_page_config(
 
 
 # ---------------------------------------------------------
-# Title
+# Header
 # ---------------------------------------------------------
 
 st.title("🛡️ SkyGuard AI")
 
 st.subheader(
-    "Intelligent Real-Time Weather Sensor Anomaly Detection"
+    "Intelligent Real-Time Weather Sensor "
+    "Anomaly Detection System"
 )
 
 st.markdown(
     """
 SkyGuard AI monitors **temperature, pressure, and humidity**
-sensor readings and identifies unusual patterns using
-machine learning and rule-based analysis.
+readings from Automatic Weather Stations and identifies
+unusual sensor patterns using a hybrid AI detection system.
 """
 )
 
@@ -64,7 +65,9 @@ machine learning and rule-based analysis.
 # Run pipeline
 # ---------------------------------------------------------
 
-@st.cache_data(show_spinner="Running SkyGuard AI pipeline...")
+@st.cache_data(
+    show_spinner="Running SkyGuard AI pipeline..."
+)
 def load_pipeline():
 
     df, _ = run_pipeline()
@@ -83,7 +86,7 @@ latest = df.iloc[-1]
 
 
 # ---------------------------------------------------------
-# KPI Cards
+# System Overview
 # ---------------------------------------------------------
 
 st.markdown("## 📊 System Overview")
@@ -92,6 +95,7 @@ col1, col2, col3, col4 = st.columns(4)
 
 
 with col1:
+
     st.metric(
         "🌡️ Temperature",
         f"{latest['temperature_c']:.1f} °C"
@@ -99,6 +103,7 @@ with col1:
 
 
 with col2:
+
     st.metric(
         "💨 Pressure",
         f"{latest['pressure_hpa']:.1f} hPa"
@@ -106,6 +111,7 @@ with col2:
 
 
 with col3:
+
     st.metric(
         "💧 Humidity",
         f"{latest['humidity_pct']:.1f} %"
@@ -113,9 +119,14 @@ with col3:
 
 
 with col4:
+
+    anomaly_count = int(
+        df["is_anomaly"].sum()
+    )
+
     st.metric(
         "🚨 Anomalies",
-        int(df["ml_anomaly"].sum())
+        anomaly_count
     )
 
 
@@ -125,30 +136,41 @@ with col4:
 
 st.markdown("## ❤️ Sensor Health")
 
-health = latest["sensor_health"]
+health = int(
+    latest["sensor_health"]
+)
 
-if health >= 75:
+
+if health >= 90:
+
     health_status = "HEALTHY"
 
+elif health >= 75:
+
+    health_status = "GOOD"
+
 elif health >= 50:
+
     health_status = "WARNING"
 
-elif health >= 25:
-    health_status = "POOR"
-
 else:
-    health_status = "CRITICAL"
+
+    health_status = "POOR"
 
 
 col1, col2 = st.columns(2)
 
+
 with col1:
+
     st.metric(
         "Sensor Health Score",
-        f"{health:.0f}/100"
+        f"{health}/100"
     )
 
+
 with col2:
+
     st.metric(
         "Health Status",
         health_status
@@ -156,7 +178,7 @@ with col2:
 
 
 st.progress(
-    int(health)
+    health
 )
 
 
@@ -175,7 +197,15 @@ chart_data = df[
     ]
 ].copy()
 
-chart_data = chart_data.set_index("timestamp")
+
+chart_data["timestamp"] = pd.to_datetime(
+    chart_data["timestamp"]
+)
+
+
+chart_data = chart_data.set_index(
+    "timestamp"
+)
 
 
 st.line_chart(
@@ -195,24 +225,27 @@ st.line_chart(
 
 st.markdown("## 🚨 Anomaly Summary")
 
-anomalies = df[df["ml_anomaly"] == True].copy()
+anomalies = df[
+    df["is_anomaly"]
+].copy()
 
 
 if len(anomalies) == 0:
 
     st.success(
-        "No anomalies detected."
+        "✅ No anomalies detected."
     )
 
 else:
 
     st.warning(
-        f"{len(anomalies)} anomalous readings detected."
+        f"⚠️ {len(anomalies)} anomalous "
+        f"readings detected."
     )
 
 
 # ---------------------------------------------------------
-# Severity distribution
+# Severity Distribution
 # ---------------------------------------------------------
 
 st.markdown("### Severity Distribution")
@@ -224,44 +257,58 @@ severity_counts = (
     .reset_index(name="count")
 )
 
+
 st.bar_chart(
-    severity_counts.set_index("severity")
+    severity_counts.set_index(
+        "severity"
+    )
 )
 
 
 # ---------------------------------------------------------
-# Anomaly type distribution
+# Anomaly Type Distribution
 # ---------------------------------------------------------
 
 st.markdown("### Anomaly Types")
 
 anomaly_counts = (
-    df[df["anomaly_type"] != "NONE"]["anomaly_type"]
+    df[
+        df["anomaly_type"] != "NONE"
+    ]["anomaly_type"]
     .value_counts()
     .rename_axis("anomaly_type")
     .reset_index(name="count")
 )
 
+
 if len(anomaly_counts) > 0:
 
     st.bar_chart(
-        anomaly_counts.set_index("anomaly_type")
+        anomaly_counts.set_index(
+            "anomaly_type"
+        )
     )
 
 else:
 
-    st.info("No classified anomalies found.")
+    st.info(
+        "No classified anomalies found."
+    )
 
 
 # ---------------------------------------------------------
-# Recent anomalies
+# Recent Anomalies
 # ---------------------------------------------------------
 
 st.markdown("## 🔍 Recent Anomalies")
 
+
 if len(anomalies) > 0:
 
-    recent = anomalies.tail(10).copy()
+    recent = anomalies.tail(
+        10
+    ).copy()
+
 
     display_columns = [
         "timestamp",
@@ -275,11 +322,15 @@ if len(anomalies) > 0:
         "corrected_value"
     ]
 
+
     st.dataframe(
-        recent[display_columns],
+        recent[
+            display_columns
+        ],
         use_container_width=True,
         hide_index=True
     )
+
 
 else:
 
@@ -289,49 +340,122 @@ else:
 
 
 # ---------------------------------------------------------
-# Latest anomaly explanation
+# AI Explanation
 # ---------------------------------------------------------
 
 st.markdown("## 🧠 AI Explanation")
+
 
 if len(anomalies) > 0:
 
     latest_anomaly = anomalies.iloc[-1]
 
-    st.write(
-        f"**Anomaly Type:** "
-        f"{latest_anomaly['anomaly_type']}"
+
+    st.info(
+        f"**{latest_anomaly['anomaly_type']}**"
     )
 
-    st.write(
-        f"**Confidence:** "
-        f"{latest_anomaly['confidence']}%"
-    )
 
-    st.write(
-        f"**Severity:** "
-        f"{latest_anomaly['severity']}"
-    )
+    col1, col2, col3 = st.columns(3)
 
-    st.write(
-        f"**Explanation:** "
-        f"{latest_anomaly['explanation']}"
-    )
 
-    if pd.notna(
-        latest_anomaly["corrected_value"]
-    ):
+    with col1:
 
-        st.write(
-            f"**Recommended corrected value:** "
-            f"{latest_anomaly['corrected_value']}"
+        st.metric(
+            "Confidence",
+            f"{latest_anomaly['confidence']}%"
         )
+
+
+    with col2:
+
+        st.metric(
+            "Severity",
+            latest_anomaly["severity"]
+        )
+
+
+    with col3:
+
+        st.metric(
+            "Sensor Health",
+            f"{latest_anomaly['sensor_health']}/100"
+        )
+
+
+    st.markdown(
+        "**Why was this detected?**"
+    )
+
+
+    st.write(
+        latest_anomaly["explanation"]
+    )
+
+
+    # -----------------------------------------------------
+    # Recommended correction
+    # -----------------------------------------------------
+
+    corrected_value = (
+        latest_anomaly["corrected_value"]
+    )
+
+
+    if pd.notna(corrected_value):
+
+        st.markdown(
+            "**🔧 Recommended Correction**"
+        )
+
+
+        st.success(
+            f"Recommended sensor value: "
+            f"**{corrected_value:.2f}**"
+        )
+
+
+    else:
+
+        st.info(
+            "No automatic correction is recommended "
+            "for this anomaly."
+        )
+
 
 else:
 
     st.success(
         "No anomaly explanation is currently required."
     )
+
+
+# ---------------------------------------------------------
+# Detailed anomaly table
+# ---------------------------------------------------------
+
+st.markdown("## 📋 Detection Details")
+
+
+detail_columns = [
+    "timestamp",
+    "temperature_c",
+    "pressure_hpa",
+    "humidity_pct",
+    "is_anomaly",
+    "anomaly_type",
+    "confidence",
+    "severity",
+    "sensor_health",
+    "corrected_value"
+]
+
+
+st.dataframe(
+    df[detail_columns].tail(50),
+    use_container_width=True,
+    hide_index=True
+)
 
 
 # ---------------------------------------------------------

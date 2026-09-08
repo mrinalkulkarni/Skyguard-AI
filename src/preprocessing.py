@@ -1,211 +1,206 @@
 """
 preprocessing.py — SkyGuard AI
 
-Cleans and prepares sensor data before anomaly detection.
+Cleans a raw/injected stream and engineers features for anomaly detection:
+- Missing-value handling
+- Rate of change
+- Rolling statistics
+- Lag features
+- Dewpoint consistency
 
 Owner: Member 1
-Status: IN PROGRESS
 """
 
 import pandas as pd
+import numpy as np
 
 
-# -----------------------------------------
-# Configuration
-# -----------------------------------------
+ROLLING_WINDOWS = [5, 15, 30]
 
-CLEAN_FILE = "data/processed/clean.csv"
-
-
-# -----------------------------------------
-# Load data
-# -----------------------------------------
-
-def load_data(file_path=CLEAN_FILE):
-    """Load cleaned weather sensor data."""
-
-    df = pd.read_csv(file_path)
-
-    # Convert timestamp to datetime
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
-
-    print(f"Loaded {len(df)} rows")
-
-    return df
+CORE_COLUMNS = [
+    "temperature_c",
+    "pressure_hpa",
+    "humidity_pct"
+]
 
 
-# -----------------------------------------
-# Handle missing values
-# -----------------------------------------
+def handle_missing(df):
+    """
+    Forward-fills missing values.
 
-def handle_missing_values(df):
-    """Handle missing sensor readings."""
+    A separate boolean column is created for each sensor
+    so downstream processing knows which values were originally missing.
+    """
 
-    sensor_columns = [
-        "temperature_c",
-        "pressure_hpa",
-        "humidity_pct"
-    ]
+    df = df.copy()
 
-    print("\nMissing values before processing:")
-    print(df[sensor_columns].isnull().sum())
-
-    # Forward fill missing sensor readings
-    df[sensor_columns] = df[sensor_columns].ffill()
-
-    # If missing values are at the beginning,
-    # use backward fill
-    df[sensor_columns] = df[sensor_columns].bfill()
-
-    print("\nMissing values after processing:")
-    print(df[sensor_columns].isnull().sum())
+    for col in CORE_COLUMNS:
+        df[f"{col}_was_missing"] = df[col].isna()
+        df[col] = df[col].ffill()
 
     return df
 
 
-# -----------------------------------------
-# Remove duplicate records
-# -----------------------------------------
+def compute_rate_of_change(df):
+    """
+    Calculates the change from the previous reading
+    for each sensor.
+    """
 
-def remove_duplicates(df):
-    """Remove duplicate timestamps."""
+    df = df.copy()
 
-    before = len(df)
-
-    df = df.drop_duplicates(subset=["timestamp"])
-
-    after = len(df)
-
-    print(f"\nRemoved duplicates: {before - after}")
+    for col in CORE_COLUMNS:
+        df[f"{col}_roc"] = df[col].diff()
 
     return df
 
 
-# -----------------------------------------
-# Validate sensor ranges
-# -----------------------------------------
+def compute_rolling_stats(df, windows=ROLLING_WINDOWS):
+    """
+    Calculates rolling mean, standard deviation and MAD
+    for each sensor over multiple time windows.
+    """
 
-def validate_sensor_ranges(df):
-    """Check that sensor values are physically reasonable."""
+    df = df.copy()
 
-    # Temperature range
-    df.loc[
-        (df["temperature_c"] < -90) |
-        (df["temperature_c"] > 60),
-        "temperature_c"
-    ] = pd.NA
+    for col in CORE_COLUMNS:
 
-    # Pressure range
-    df.loc[
-        (df["pressure_hpa"] < 800) |
-        (df["pressure_hpa"] > 1100),
-        "pressure_hpa"
-    ] = pd.NA
+        for w in windows:
 
-    # Humidity range
-    df.loc[
-        (df["humidity_pct"] < 0) |
-        (df["humidity_pct"] > 100),
-        "humidity_pct"
-    ] = pd.NA
+            roll = df[col].rolling(
+                window=w,
+                min_periods=max(2, w // 2)
+            )
 
-    # Fill values made missing by validation
-    sensor_columns = [
-        "temperature_c",
-        "pressure_hpa",
-        "humidity_pct"
-    ]
+            # Rolling mean
+            df[f"{col}_mean_{w}"] = roll.mean()
 
-    df[sensor_columns] = df[sensor_columns].ffill().bfill()
+            # Rolling standard deviation
+            df[f"{col}_std_{w}"] = roll.std()
 
-    print("\nSensor range validation complete")
+            # Rolling Median Absolute Deviation (MAD)
+            df[f"{col}_mad_{w}"] = roll.apply(
+                lambda x: np.median(
+                    np.abs(x - np.median(x))
+                ),
+                raw=True
+            )
 
     return df
 
 
-# -----------------------------------------
-# Feature engineering
-# -----------------------------------------
+def compute_lag_features(df, lags=(1, 2, 3)):
+    """
+    Adds previous readings for each sensor.
 
-def create_features(df):
-    """Create basic features for anomaly detection."""
+    This helps the model understand short-term trends.
+    """
 
-    # Change from previous reading
-    df["temperature_change"] = df["temperature_c"].diff()
+    df = df.copy()
 
-    df["pressure_change"] = df["pressure_hpa"].diff()
+    for col in CORE_COLUMNS:
 
-    df["humidity_change"] = df["humidity_pct"].diff()
+        for lag in lags:
+            df[f"{col}_lag_{lag}"] = df[col].shift(lag)
 
-    # Rolling averages
-    df["temperature_rolling_mean"] = (
-        df["temperature_c"]
-        .rolling(window=3, min_periods=1)
-        .mean()
+    return df
+
+
+def compute_dewpoint_consistency(df):
+    """
+    Estimates dew point from current temperature and humidity.
+
+    This provides a physical-consistency feature between
+    temperature and humidity.
+    """
+
+    df = df.copy()
+
+    A = 17.625
+    B = 243.04
+
+    temperature = df["temperature_c"]
+
+    humidity = df["humidity_pct"].clip(1, 100)
+
+    gamma = (
+        np.log(humidity / 100)
+        + (A * temperature) / (B + temperature)
     )
 
-    df["pressure_rolling_mean"] = (
-        df["pressure_hpa"]
-        .rolling(window=3, min_periods=1)
-        .mean()
+    df["dewpoint_estimate_c"] = (
+        B * gamma
+    ) / (
+        A - gamma
     )
-
-    df["humidity_rolling_mean"] = (
-        df["humidity_pct"]
-        .rolling(window=3, min_periods=1)
-        .mean()
-    )
-
-    # First row has no previous value
-    df = df.fillna(0)
 
     return df
 
 
-# -----------------------------------------
-# Complete preprocessing pipeline
-# -----------------------------------------
+def preprocess(df):
+    """
+    Runs the complete preprocessing pipeline.
+    """
 
-def preprocess_data(file_path=CLEAN_FILE):
-    """Run the complete preprocessing pipeline."""
+    df = handle_missing(df)
 
-    print("\nStarting preprocessing...")
+    df = compute_rate_of_change(df)
 
-    # Step 1: Load
-    df = load_data(file_path)
+    df = compute_rolling_stats(df)
 
-    # Step 2: Missing values
-    df = handle_missing_values(df)
+    df = compute_lag_features(df)
 
-    # Step 3: Remove duplicates
-    df = remove_duplicates(df)
-
-    # Step 4: Validate sensor ranges
-    df = validate_sensor_ranges(df)
-
-    # Step 5: Create features
-    df = create_features(df)
-
-    # Sort by timestamp
-    df = df.sort_values("timestamp").reset_index(drop=True)
-
-    print("\nPreprocessing complete!")
-    print(f"Final rows: {len(df)}")
-    print(f"Final columns: {len(df.columns)}")
+    df = compute_dewpoint_consistency(df)
 
     return df
 
-
-# -----------------------------------------
-# Run when file is executed directly
-# -----------------------------------------
 
 if __name__ == "__main__":
 
-    processed_df = preprocess_data()
+    from src.simulator import load_clean_data, inject_anomalies
 
-    print("\nFirst 5 processed rows:")
-    print(processed_df.head())
+    # Load clean historical data
+    clean = load_clean_data()
 
-    print("\nColumns:")
-    print(processed_df.columns.tolist())
+    # Inject synthetic anomalies
+    stream = inject_anomalies(clean)
+
+    # Generate preprocessing features
+    features = preprocess(stream)
+
+    print(
+        f"Input rows: {len(stream)} | "
+        f"Output rows: {len(features)}"
+    )
+
+    print(
+        f"Columns produced: {len(features.columns)}"
+    )
+
+    print(features.columns.tolist())
+
+    # The first ~30 rows can legitimately contain NaN
+    # because of rolling windows and lag features.
+    #
+    # We therefore check only rows AFTER the warm-up period.
+
+    nan_after_warmup = features.iloc[30:].isna().sum()
+
+    leaking = nan_after_warmup[
+        nan_after_warmup > 0
+    ]
+
+    if len(leaking) == 0:
+
+        print(
+            "No NaN leaks past row 30 — OK"
+        )
+
+    else:
+
+        print(
+            "NaN leaks found in these columns "
+            "after warm-up:"
+        )
+
+        print(leaking)

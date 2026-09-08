@@ -3,25 +3,65 @@ pipeline.py — SkyGuard AI
 
 Runs the complete SkyGuard AI anomaly detection pipeline.
 
+Pipeline:
+    Data
+    ↓
+    Simulator
+    ↓
+    Preprocessing
+    ↓
+    Anomaly Detection
+    ↓
+    Root Cause
+    ↓
+    Confidence
+    ↓
+    Severity
+    ↓
+    Sensor Health
+    ↓
+    Explainability
+    ↓
+    Correction
+
 Owner: Member 1
-Status: IN PROGRESS
 """
 
 import pandas as pd
 
-from preprocessing import preprocess_data
-from detector import detect_anomalies
-from rootcause import classify_dataframe
-from scoring import add_confidence_scores
-from severity import add_severity
-from health import calculate_health_score
-from explain import add_explanations
-from correction import add_corrections
+from src.simulator import (
+    load_clean_data,
+    inject_anomalies
+)
+
+from src.preprocessing import preprocess
+from src.detector import detect_anomalies
+from src.rootcause import classify_dataframe
+from src.scoring import add_confidence_scores
+from src.severity import add_severity
+from src.health import add_sensor_health
+from src.explain import add_explanations
+from src.correction import add_corrections
 
 
-def run_pipeline(file_path="data/processed/clean.csv"):
+# ---------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------
+
+DEFAULT_FILE = "data/processed/clean.csv"
+
+
+# ---------------------------------------------------------
+# Complete pipeline
+# ---------------------------------------------------------
+
+def run_pipeline(file_path=DEFAULT_FILE):
     """
     Run the complete SkyGuard AI pipeline.
+
+    Returns:
+        df     -> final processed dataframe
+        model  -> trained Isolation Forest model
     """
 
     print("\n" + "=" * 60)
@@ -29,68 +69,139 @@ def run_pipeline(file_path="data/processed/clean.csv"):
     print("=" * 60)
 
     # -----------------------------------------------------
-    # Step 1 — Preprocessing
+    # Step 1 — Load clean data
     # -----------------------------------------------------
 
-    print("\n[1/8] Preprocessing data...")
+    print("\n[1/9] Loading clean data...")
 
-    df = preprocess_data(file_path)
+    clean = load_clean_data(file_path)
 
-    # -----------------------------------------------------
-    # Step 2 — Machine Learning Detection
-    # -----------------------------------------------------
-
-    print("\n[2/8] Running Isolation Forest...")
-
-    df, model = detect_anomalies(df)
+    print(
+        f"Clean observations: {len(clean)}"
+    )
 
     # -----------------------------------------------------
-    # Step 3 — Root Cause Classification
+    # Step 2 — Simulate streaming anomalies
     # -----------------------------------------------------
 
-    print("\n[3/8] Classifying root causes...")
+    print("\n[2/9] Injecting simulated anomalies...")
 
-    df = classify_dataframe(df)
+    stream = inject_anomalies(clean)
 
-    # -----------------------------------------------------
-    # Step 4 — Confidence Scoring
-    # -----------------------------------------------------
-
-    print("\n[4/8] Calculating confidence...")
-
-    df = add_confidence_scores(df)
+    print(
+        f"Stream observations: {len(stream)}"
+    )
 
     # -----------------------------------------------------
-    # Step 5 — Severity Classification
+    # Step 3 — Preprocessing
     # -----------------------------------------------------
 
-    print("\n[5/8] Calculating severity...")
+    print("\n[3/9] Preprocessing and feature engineering...")
 
-    df = add_severity(df)
+    features = preprocess(stream)
 
-    # -----------------------------------------------------
-    # Step 6 — Sensor Health
-    # -----------------------------------------------------
-
-    print("\n[6/8] Calculating sensor health...")
-
-    df = calculate_health_score(df)
+    print(
+        f"Feature observations: {len(features)}"
+    )
 
     # -----------------------------------------------------
-    # Step 7 — SHAP Explanation
+    # Step 4 — Anomaly Detection
     # -----------------------------------------------------
 
-    print("\n[7/8] Generating SHAP explanations...")
+    print("\n[4/9] Running anomaly detection...")
 
-    df = add_explanations(df, model)
+    detected, model = detect_anomalies(
+        features
+    )
+
+    print(
+        "Anomaly detection complete."
+    )
 
     # -----------------------------------------------------
-    # Step 8 — Recommended Correction
+    # Step 5 — Root Cause
     # -----------------------------------------------------
 
-    print("\n[8/8] Calculating recommended corrections...")
+    print("\n[5/9] Classifying root causes...")
 
-    df = add_corrections(df)
+    classified = classify_dataframe(
+        detected
+    )
+
+    print(
+        "Root-cause classification complete."
+    )
+
+    # -----------------------------------------------------
+    # Step 6 — Confidence
+    # -----------------------------------------------------
+
+    print("\n[6/9] Calculating confidence scores...")
+
+    scored = add_confidence_scores(
+        classified
+    )
+
+    print(
+        "Confidence calculation complete."
+    )
+
+    # -----------------------------------------------------
+    # Step 7 — Severity
+    # -----------------------------------------------------
+
+    print("\n[7/9] Calculating severity...")
+
+    severity_data = add_severity(
+        scored
+    )
+
+    print(
+        "Severity calculation complete."
+    )
+
+    # -----------------------------------------------------
+    # Step 8 — Sensor Health
+    # -----------------------------------------------------
+
+    print("\n[8/9] Calculating sensor health...")
+
+    health_data = add_sensor_health(
+        severity_data
+    )
+
+    print(
+        "Sensor health calculation complete."
+    )
+
+    # -----------------------------------------------------
+    # Step 9 — Explainability
+    # -----------------------------------------------------
+
+    print("\n[9/9] Generating explanations...")
+
+    explained = add_explanations(
+        health_data,
+        model
+    )
+
+    print(
+        "Explainability calculation complete."
+    )
+
+    # -----------------------------------------------------
+    # Recommended correction
+    # -----------------------------------------------------
+
+    print("\nCalculating recommended corrections...")
+
+    result = add_corrections(
+        explained
+    )
+
+    print(
+        "Correction calculation complete."
+    )
 
     # -----------------------------------------------------
     # Final summary
@@ -100,23 +211,71 @@ def run_pipeline(file_path="data/processed/clean.csv"):
     print("PIPELINE COMPLETE")
     print("=" * 60)
 
-    anomaly_count = int(df["ml_anomaly"].sum())
+    anomaly_count = int(
+        result["is_anomaly"].sum()
+    )
 
-    print(f"\nTotal readings: {len(df)}")
-    print(f"Anomalies detected: {anomaly_count}")
+    correction_count = int(
+        result["corrected_value"].notna().sum()
+    )
+
+    print(
+        f"\nTotal readings: {len(result)}"
+    )
+
+    print(
+        f"Anomalies detected: {anomaly_count}"
+    )
+
+    print(
+        f"Correction recommendations: {correction_count}"
+    )
 
     print(
         f"Final sensor health: "
-        f"{df['sensor_health'].iloc[-1]}"
+        f"{result['sensor_health'].iloc[-1]}"
     )
 
     print("\nSeverity distribution:")
-    print(df["severity"].value_counts())
+
+    print(
+        result["severity"].value_counts()
+    )
 
     print("\nAnomaly type distribution:")
-    print(df["anomaly_type"].value_counts())
 
-    return df, model
+    print(
+        result["anomaly_type"].value_counts()
+    )
+
+    return result, model
+
+
+# ---------------------------------------------------------
+# Final output schema
+# ---------------------------------------------------------
+
+def get_final_output(df):
+    """
+    Return the columns required by the official
+    SkyGuard AI output schema.
+    """
+
+    output_columns = [
+        "timestamp",
+        "temperature_c",
+        "pressure_hpa",
+        "humidity_pct",
+        "is_anomaly",
+        "anomaly_type",
+        "confidence",
+        "severity",
+        "explanation",
+        "sensor_health",
+        "corrected_value",
+    ]
+
+    return df[output_columns].copy()
 
 
 # ---------------------------------------------------------
@@ -127,26 +286,127 @@ if __name__ == "__main__":
 
     df, model = run_pipeline()
 
-    print("\nFinal output columns:")
+    print("\n" + "=" * 60)
+    print("FINAL OUTPUT SCHEMA")
+    print("=" * 60)
 
-    print(df.columns.tolist())
+    final_output = get_final_output(df)
+
+    print(
+        "\nFinal output columns:"
+    )
+
+    print(
+        final_output.columns.tolist()
+    )
+
+    print(
+        f"\nTotal final columns: "
+        f"{len(final_output.columns)}"
+    )
 
     print("\nFinal sample:")
 
     print(
-        df[
-            [
-                "timestamp",
-                "temperature_c",
-                "pressure_hpa",
-                "humidity_pct",
-                "ml_anomaly",
-                "anomaly_type",
-                "confidence",
-                "severity",
-                "sensor_health",
-                "explanation",
-                "corrected_value"
-            ]
-        ].head(10)
+        final_output.head(10).to_string(
+            index=False
+        )
     )
+
+    # -----------------------------------------------------
+    # Schema validation
+    # -----------------------------------------------------
+
+    expected_columns = [
+        "timestamp",
+        "temperature_c",
+        "pressure_hpa",
+        "humidity_pct",
+        "is_anomaly",
+        "anomaly_type",
+        "confidence",
+        "severity",
+        "explanation",
+        "sensor_health",
+        "corrected_value",
+    ]
+
+    missing_columns = [
+        column
+        for column in expected_columns
+        if column not in final_output.columns
+    ]
+
+    extra_columns = [
+        column
+        for column in final_output.columns
+        if column not in expected_columns
+    ]
+
+    if len(missing_columns) == 0:
+        print(
+            "\nRequired schema check: OK"
+        )
+    else:
+        print(
+            "\nRequired schema check: FAILED"
+        )
+
+        print(
+            f"Missing columns: {missing_columns}"
+        )
+
+    if len(extra_columns) == 0:
+        print(
+            "Extra-column check: OK"
+        )
+    else:
+        print(
+            f"Extra columns in final output: "
+            f"{extra_columns}"
+        )
+
+    # -----------------------------------------------------
+    # Basic data validation
+    # -----------------------------------------------------
+
+    if len(final_output) == len(df):
+        print(
+            "Row count preservation check: OK"
+        )
+    else:
+        print(
+            "Row count preservation check: FAILED"
+        )
+
+    if (
+        final_output["confidence"].between(
+            0,
+            100
+        ).all()
+    ):
+        print(
+            "Confidence range check: OK"
+        )
+    else:
+        print(
+            "Confidence range check: FAILED"
+        )
+
+    if (
+        final_output["sensor_health"].between(
+            0,
+            100
+        ).all()
+    ):
+        print(
+            "Sensor health range check: OK"
+        )
+    else:
+        print(
+            "Sensor health range check: FAILED"
+        )
+
+    print("\n" + "=" * 60)
+    print("END-TO-END TEST COMPLETE")
+    print("=" * 60)

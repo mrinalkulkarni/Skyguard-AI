@@ -24,6 +24,49 @@ HUMIDITY_SPIKE = 30
 # Load cleaned NOAA data
 df = pd.read_csv(CLEAN_FILE)
 
+def load_clean_data(file_path=CLEAN_FILE):
+    """
+    Load cleaned NOAA weather data.
+    """
+    return pd.read_csv(file_path)
+
+def inject_anomalies(dataframe):
+    """
+    Inject synthetic anomalies into a copy of the dataframe.
+    """
+
+    dataframe = dataframe.copy()
+
+    for index in dataframe.index:
+
+        if index > 0 and index % ANOMALY_INTERVAL == 0:
+
+            anomaly_number = (index // ANOMALY_INTERVAL) % 6
+
+            if anomaly_number == 1:
+                dataframe.loc[index, "temperature_c"] += TEMPERATURE_SPIKE
+
+            elif anomaly_number == 2:
+                dataframe.loc[index, "temperature_c"] -= TEMPERATURE_DROP
+
+            elif anomaly_number == 3:
+                dataframe.loc[index, "pressure_hpa"] += PRESSURE_SPIKE
+
+            elif anomaly_number == 4:
+                dataframe.loc[index, "pressure_hpa"] += PRESSURE_DRIFT
+
+            elif anomaly_number == 5:
+                dataframe.loc[index, "humidity_pct"] += HUMIDITY_SPIKE
+                dataframe.loc[index, "humidity_pct"] = min(
+                    dataframe.loc[index, "humidity_pct"],
+                    100
+                )
+
+            elif anomaly_number == 0:
+                dataframe.loc[index, "humidity_pct"] = 50.0
+
+    return dataframe
+
 print(f"Loaded {len(df)} rows")
 print(df.head())
 
@@ -96,4 +139,5 @@ def simulate(dataframe, delay=1):
 
 
 # Start simulation
-simulate(df)
+if __name__ == "__main__":
+    simulate(df)

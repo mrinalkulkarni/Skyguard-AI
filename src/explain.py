@@ -1,178 +1,517 @@
 """
 explain.py — SkyGuard AI
 
-Generates simple explanations for Isolation Forest anomaly detections
-using SHAP feature contributions.
+Creates human-readable explanations for detected anomalies.
+
+Uses:
+- Root-cause classification
+- Sensor values and rate of change
+- Isolation Forest + SHAP for model explanation
 
 Owner: Member 1
-Status: IN PROGRESS
 """
 
+import numpy as np
 import pandas as pd
 import shap
 
 
-FEATURE_COLUMNS = [
+MODEL_FEATURES = [
     "temperature_c",
     "pressure_hpa",
     "humidity_pct",
-    "temperature_change",
-    "pressure_change",
-    "humidity_change",
-    "temperature_rolling_mean",
-    "pressure_rolling_mean",
-    "humidity_rolling_mean"
+
+    "temperature_c_roc",
+    "pressure_hpa_roc",
+    "humidity_pct_roc",
+
+    "temperature_c_mean_5",
+    "temperature_c_std_5",
+    "temperature_c_mad_5",
+
+    "pressure_hpa_mean_5",
+    "pressure_hpa_std_5",
+    "pressure_hpa_mad_5",
+
+    "humidity_pct_mean_5",
+    "humidity_pct_std_5",
+    "humidity_pct_mad_5",
+
+    "temperature_c_mean_15",
+    "pressure_hpa_mean_15",
+    "humidity_pct_mean_15",
+
+    "temperature_c_mean_30",
+    "pressure_hpa_mean_30",
+    "humidity_pct_mean_30",
+
+    "temperature_c_lag_1",
+    "temperature_c_lag_2",
+    "temperature_c_lag_3",
+
+    "pressure_hpa_lag_1",
+    "pressure_hpa_lag_2",
+    "pressure_hpa_lag_3",
+
+    "humidity_pct_lag_1",
+    "humidity_pct_lag_2",
+    "humidity_pct_lag_3",
+
+    "dewpoint_estimate_c",
 ]
 
 
-def create_shap_explainer(model, X):
+FEATURE_LABELS = {
+    "temperature_c": "temperature",
+    "pressure_hpa": "pressure",
+    "humidity_pct": "humidity",
+
+    "temperature_c_roc": "temperature change",
+    "pressure_hpa_roc": "pressure change",
+    "humidity_pct_roc": "humidity change",
+
+    "temperature_c_mean_5": "5-reading temperature average",
+    "temperature_c_std_5": "5-reading temperature variation",
+    "temperature_c_mad_5": "5-reading temperature deviation",
+
+    "pressure_hpa_mean_5": "5-reading pressure average",
+    "pressure_hpa_std_5": "5-reading pressure variation",
+    "pressure_hpa_mad_5": "5-reading pressure deviation",
+
+    "humidity_pct_mean_5": "5-reading humidity average",
+    "humidity_pct_std_5": "5-reading humidity variation",
+    "humidity_pct_mad_5": "5-reading humidity deviation",
+
+    "temperature_c_mean_15": "15-reading temperature average",
+    "pressure_hpa_mean_15": "15-reading pressure average",
+    "humidity_pct_mean_15": "15-reading humidity average",
+
+    "temperature_c_mean_30": "30-reading temperature average",
+    "pressure_hpa_mean_30": "30-reading pressure average",
+    "humidity_pct_mean_30": "30-reading humidity average",
+
+    "temperature_c_lag_1": "previous temperature",
+    "temperature_c_lag_2": "temperature two readings ago",
+    "temperature_c_lag_3": "temperature three readings ago",
+
+    "pressure_hpa_lag_1": "previous pressure",
+    "pressure_hpa_lag_2": "pressure two readings ago",
+    "pressure_hpa_lag_3": "pressure three readings ago",
+
+    "humidity_pct_lag_1": "previous humidity",
+    "humidity_pct_lag_2": "humidity two readings ago",
+    "humidity_pct_lag_3": "humidity three readings ago",
+
+    "dewpoint_estimate_c": "estimated dewpoint",
+}
+
+
+def get_model_features(model, dataframe):
     """
-    Create a SHAP TreeExplainer for the Isolation Forest model.
+    Get the exact features used by the trained model.
     """
 
-    return shap.TreeExplainer(model)
-
-
-def explain_anomaly(row, model, X):
-    """
-    Generate a human-readable explanation for one reading.
-    """
-
-    # Select the current row
-    row_data = row[FEATURE_COLUMNS].to_frame().T
-
-    # Calculate SHAP values
-    explainer = create_shap_explainer(model, X)
-
-    shap_values = explainer.shap_values(row_data)
-
-    # SHAP can return different structures depending on the version.
-    if isinstance(shap_values, list):
-        values = shap_values[0][0]
+    if hasattr(model, "feature_names_in_"):
+        features = list(model.feature_names_in_)
     else:
-        values = shap_values[0]
+        features = [
+            column
+            for column in MODEL_FEATURES
+            if column in dataframe.columns
+        ]
 
-    # Find the feature with the largest contribution
-    contributions = pd.Series(
-        values,
-        index=FEATURE_COLUMNS
+    return features
+
+
+def prepare_model_input(dataframe, feature_names):
+    """
+    Prepare data for SHAP.
+
+    Missing or infinite values are replaced safely.
+    """
+
+    X = dataframe[feature_names].copy()
+
+    X = X.replace([np.inf, -np.inf], np.nan)
+    X = X.fillna(0)
+
+    return X
+
+
+def calculate_shap_values(model, X):
+    """
+    Calculate SHAP values for the Isolation Forest model.
+    """
+
+    explainer = shap.TreeExplainer(model)
+
+    try:
+        shap_values = explainer.shap_values(
+            X,
+            check_additivity=False
+        )
+    except TypeError:
+        shap_values = explainer.shap_values(X)
+
+    if isinstance(shap_values, list):
+        shap_values = shap_values[0]
+
+    shap_values = np.asarray(shap_values)
+
+    if shap_values.ndim == 3:
+        shap_values = shap_values[0]
+
+    return shap_values
+
+
+def get_top_shap_feature(shap_row, feature_names):
+    """
+    Find the feature with the largest absolute SHAP contribution.
+    """
+
+    if len(shap_row) == 0:
+        return None, 0.0
+
+    index = int(np.argmax(np.abs(shap_row)))
+
+    feature_name = feature_names[index]
+    contribution = float(shap_row[index])
+
+    return feature_name, contribution
+
+
+def feature_label(feature_name):
+    """
+    Convert technical feature names into readable names.
+    """
+
+    return FEATURE_LABELS.get(
+        feature_name,
+        feature_name.replace("_", " ")
     )
 
-    top_feature = contributions.abs().idxmax()
-    top_value = contributions[top_feature]
 
-    # Human-readable feature names
-    feature_names = {
-        "temperature_c": "temperature",
-        "pressure_hpa": "pressure",
-        "humidity_pct": "humidity",
-        "temperature_change": "temperature change",
-        "pressure_change": "pressure change",
-        "humidity_change": "humidity change",
-        "temperature_rolling_mean": "temperature trend",
-        "pressure_rolling_mean": "pressure trend",
-        "humidity_rolling_mean": "humidity trend"
+def safe_float(value, default=0.0):
+    """
+    Safely convert a value to float.
+    """
+
+    if value is None or pd.isna(value):
+        return default
+
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def build_explanation(
+    row,
+    top_feature=None,
+    shap_contribution=0.0
+):
+    """
+    Build a human-readable explanation.
+    """
+
+    if not bool(row.get("is_anomaly", False)):
+        return "No anomaly detected; the observation is within the expected pattern."
+
+    anomaly_type = str(
+        row.get("anomaly_type", "UNKNOWN")
+    )
+
+    temperature = safe_float(
+        row.get("temperature_c")
+    )
+
+    pressure = safe_float(
+        row.get("pressure_hpa")
+    )
+
+    humidity = safe_float(
+        row.get("humidity_pct")
+    )
+
+    temperature_roc = safe_float(
+        row.get("temperature_c_roc")
+    )
+
+    pressure_roc = safe_float(
+        row.get("pressure_hpa_roc")
+    )
+
+    humidity_roc = safe_float(
+        row.get("humidity_pct_roc")
+    )
+
+    explanations = {
+        "TEMPERATURE_SPIKE":
+            f"Temperature increased sharply by {temperature_roc:.1f} °C in one reading.",
+
+        "TEMPERATURE_DROP":
+            f"Temperature decreased sharply by {abs(temperature_roc):.1f} °C in one reading.",
+
+        "TEMPERATURE_DRIFT":
+            "Temperature shows an unusual sustained change.",
+
+        "PRESSURE_SPIKE":
+            f"Pressure increased sharply by {pressure_roc:.1f} hPa in one reading.",
+
+        "PRESSURE_DRIFT":
+            f"Pressure changed unusually by {pressure_roc:.1f} hPa.",
+
+        "HUMIDITY_SPIKE":
+            f"Humidity increased sharply by {humidity_roc:.1f} percentage points.",
+
+        "HUMIDITY_FROZEN":
+            f"Humidity remained almost unchanged at {humidity:.1f}% across consecutive readings.",
+
+        "TEMPERATURE_FROZEN":
+            f"Temperature remained almost unchanged at {temperature:.1f} °C across consecutive readings.",
+
+        "PRESSURE_FROZEN":
+            f"Pressure remained almost unchanged at {pressure:.1f} hPa across consecutive readings.",
+
+        "SENSOR_FROZEN":
+            "A sensor value remained almost unchanged across consecutive readings.",
+
+        "SENSOR_BIAS":
+            "The sensor value is outside the configured plausible physical range.",
+
+        "MISSING_DATA":
+            "A missing sensor reading was detected.",
+
+        "MULTIVARIATE_INCONSISTENCY":
+            "Multiple sensor variables show an unusual combination that is inconsistent with the expected pattern.",
+
+        "POSSIBLE_REAL_WEATHER_EVENT":
+            "The hybrid detector found an unusual weather pattern, but no specific sensor fault signature was identified.",
+
+        "UNKNOWN":
+            "The observation was detected as anomalous by the hybrid detection system.",
     }
 
-    readable_name = feature_names.get(
-        top_feature,
-        top_feature
+    explanation = explanations.get(
+        anomaly_type,
+        explanations["UNKNOWN"]
     )
 
-    direction = "increased" if top_value > 0 else "decreased"
+    if top_feature is not None:
+        readable_feature = feature_label(top_feature)
 
-    explanation = (
-        f"Anomaly detected primarily due to "
-        f"{readable_name}. "
-        f"The feature contribution {direction} the anomaly score."
-    )
+        explanation += (
+            f" The strongest machine-learning contribution "
+            f"came from {readable_feature}."
+        )
 
     return explanation
 
 
 def add_explanations(df, model):
     """
-    Add SHAP-based explanations to anomaly rows.
+    Add an explanation column to the dataframe.
+
+    SHAP is calculated only for detected anomalies.
     """
 
     df = df.copy()
 
-    X = df[FEATURE_COLUMNS].copy()
+    df["explanation"] = (
+        "No anomaly detected; the observation is within the expected pattern."
+    )
 
-    explanations = []
+    anomaly_mask = df["is_anomaly"].astype(bool)
 
-    for _, row in df.iterrows():
+    if anomaly_mask.sum() == 0:
+        return df
 
-        if row.get("ml_anomaly", False):
+    anomaly_data = df.loc[anomaly_mask].copy()
 
-            try:
-                explanation = explain_anomaly(
-                    row,
-                    model,
-                    X
-                )
+    feature_names = get_model_features(
+        model,
+        df
+    )
 
-            except Exception:
-                explanation = (
-                    "Anomaly detected by the machine-learning model "
-                    "based on unusual sensor patterns."
-                )
+    if not feature_names:
+        for index, row in anomaly_data.iterrows():
+            df.loc[index, "explanation"] = build_explanation(row)
 
-        else:
-            explanation = "No significant anomaly detected."
+        return df
 
-        explanations.append(explanation)
+    X = prepare_model_input(
+        anomaly_data,
+        feature_names
+    )
 
-    df["explanation"] = explanations
+    try:
+        shap_values = calculate_shap_values(
+            model,
+            X
+        )
+
+        for position, (index, row) in enumerate(
+            anomaly_data.iterrows()
+        ):
+
+            shap_row = shap_values[position]
+
+            top_feature, contribution = get_top_shap_feature(
+                shap_row,
+                feature_names
+            )
+
+            df.loc[index, "explanation"] = build_explanation(
+                row,
+                top_feature,
+                contribution
+            )
+
+    except Exception as error:
+        print(
+            "SHAP explanation warning:",
+            error
+        )
+
+        for index, row in anomaly_data.iterrows():
+            df.loc[index, "explanation"] = build_explanation(row)
 
     return df
 
 
-# ---------------------------------------------------------
-# Test SHAP explanation
-# ---------------------------------------------------------
-
 if __name__ == "__main__":
 
-    print("Starting SHAP explanation...")
+    from src.simulator import (
+        load_clean_data,
+        inject_anomalies
+    )
 
-    from detector import detect_anomalies
-    from preprocessing import preprocess_data
-    from rootcause import classify_dataframe
-    from scoring import add_confidence_scores
-    from severity import add_severity
+    from src.preprocessing import preprocess
+    from src.detector import detect_anomalies
+    from src.rootcause import classify_dataframe
+    from src.scoring import add_confidence_scores
+    from src.severity import add_severity
+    from src.health import add_sensor_health
 
-    # Step 1: Preprocess
-    df = preprocess_data()
+    print("Loading clean data...")
 
-    # Step 2: Detect anomalies
-    df, model = detect_anomalies(df)
-
-    # Step 3: Root cause
-    df = classify_dataframe(df)
-
-    # Step 4: Confidence
-    df = add_confidence_scores(df)
-
-    # Step 5: Severity
-    df = add_severity(df)
-
-    # Step 6: SHAP explanations
-    df = add_explanations(df, model)
-
-    print("\nSHAP explanation complete!")
-
-    print("\nSample explanations:")
+    clean = load_clean_data()
 
     print(
-        df[
-            [
-                "timestamp",
-                "ml_anomaly",
-                "anomaly_type",
-                "confidence",
-                "severity",
-                "explanation"
-            ]
-        ].head(20)
+        f"Clean rows: {len(clean)}"
     )
+
+    print("\nInjecting anomalies...")
+
+    stream = inject_anomalies(clean)
+
+    print(
+        f"Stream rows: {len(stream)}"
+    )
+
+    print("\nRunning preprocessing...")
+
+    features = preprocess(stream)
+
+    print(
+        f"Feature rows: {len(features)}"
+    )
+
+    print("\nRunning anomaly detection...")
+
+    detected, model = detect_anomalies(features)
+
+    print("Detection complete.")
+
+    print("\nRunning root-cause classification...")
+
+    classified = classify_dataframe(
+        detected
+    )
+
+    print(
+        "Root-cause classification complete."
+    )
+
+    print("\nCalculating confidence...")
+
+    scored = add_confidence_scores(
+        classified
+    )
+
+    print(
+        "Confidence calculation complete."
+    )
+
+    print("\nCalculating severity...")
+
+    severity_data = add_severity(
+        scored
+    )
+
+    print(
+        "Severity calculation complete."
+    )
+
+    print("\nCalculating sensor health...")
+
+    health_data = add_sensor_health(
+        severity_data
+    )
+
+    print(
+        "Sensor health calculation complete."
+    )
+
+    print("\nGenerating explanations...")
+
+    result = add_explanations(
+        health_data,
+        model
+    )
+
+    print(
+        "Explainability calculation complete!"
+    )
+
+    print("\nExplanation column check:")
+
+    if "explanation" in result.columns:
+        print("Explanation column: OK")
+    else:
+        print("Explanation column: FAILED")
+
+    print("\nFirst detected anomalies with explanations:")
+
+    columns = [
+        "timestamp",
+        "anomaly_type",
+        "confidence",
+        "severity",
+        "sensor_health",
+        "explanation",
+    ]
+
+    print(
+        result.loc[
+            result["is_anomaly"],
+            columns
+        ].head(10).to_string(index=False)
+    )
+
+    empty_explanations = result[
+        result["is_anomaly"]
+        & (
+            result["explanation"].isna()
+            | (result["explanation"].str.strip() == "")
+        )
+    ]
+
+    if len(empty_explanations) == 0:
+        print(
+            "\nExplanation validation: OK"
+        )
+    else:
+        print(
+            "\nExplanation validation: FAILED"
+        )
